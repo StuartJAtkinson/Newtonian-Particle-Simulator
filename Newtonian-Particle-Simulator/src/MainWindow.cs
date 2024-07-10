@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
 using OpenTK;
-using OpenTK.Input;
 using OpenTK.Graphics;
 using OpenTK.Graphics.OpenGL4;
 using Newtonian_Particle_Simulator.Render;
@@ -11,12 +10,15 @@ namespace Newtonian_Particle_Simulator
     class MainWindow : GameWindow
     {
         public MainWindow() 
-            : base(832, 832, new GraphicsMode(0, 0, 0, 0), "Newtonian-Particle-Simulator") { /*WindowState = WindowState.Fullscreen;*/ }
+            : base(832, 832, new GraphicsMode(0, 0, 0, 0), "Newtonian-Particle-Simulator") { }
 
-        private readonly Camera camera = new Camera(new Vector3(0, 0, 15), new Vector3(0, 1, 0));
+        private readonly Camera camera = new Camera(new Vector3(0, 0, 50), new Vector3(0, 1, 0));
         private Matrix4 projection;
 
-        private int frames = 0, FPS;
+        private int frames = 0;
+        private readonly Stopwatch fpsTimer = Stopwatch.StartNew();
+        private ParticleSimulator particleSimulator;
+
         protected override void OnRenderFrame(FrameEventArgs e)
         {
             particleSimulator.Run((float)e.Time);
@@ -30,49 +32,17 @@ namespace Newtonian_Particle_Simulator
         {
             if (fpsTimer.ElapsedMilliseconds >= 1000)
             {
-                FPS = frames;
-                Title = $"Newtonian-Particle-Simulator FPS: {FPS}";
+                int fps = frames;
+                Title = $"Newtonian-Particle-Simulator FPS: {fps}";
                 frames = 0;
                 fpsTimer.Restart();
             }
 
-            if (Focused)
-            {
-                KeyboardManager.Update();
-                MouseManager.Update();
-
-                if (KeyboardManager.IsKeyTouched(Key.V))
-                    VSync = VSync == VSyncMode.Off ? VSyncMode.On : VSyncMode.Off;
-
-                if (KeyboardManager.IsKeyTouched(Key.E))
-                {
-                    CursorVisible = !CursorVisible;
-                    CursorGrabbed = !CursorGrabbed;
-
-                    if (!CursorVisible)
-                    {
-                        MouseManager.Update();
-                        camera.Velocity = Vector3.Zero;
-                    }
-                }
-
-                if (KeyboardManager.IsKeyTouched(Key.F11))
-                    WindowState = WindowState == WindowState.Normal ? WindowState.Fullscreen : WindowState.Normal;
-
-
-                particleSimulator.ProcessInputs(this, camera.Position, camera.View, projection);
-                if (!CursorVisible)
-                    camera.ProcessInputs((float)e.Time);
-            }
-
-            if (KeyboardManager.IsKeyDown(Key.Escape))
-                Close();
+            particleSimulator.UpdateProjectionView(camera.View * projection);
 
             base.OnUpdateFrame(e);
         }
 
-        private readonly Stopwatch fpsTimer = Stopwatch.StartNew();
-        private ParticleSimulator particleSimulator;
         protected override void OnLoad(EventArgs e)
         {
             Console.WriteLine($"OpenGL: {Helper.APIVersion}");
@@ -90,23 +60,18 @@ namespace Newtonian_Particle_Simulator
             GL.BlendEquation(BlendEquationMode.FuncAdd);
             GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
 
-            VSync = VSyncMode.Off;
+            VSync = VSyncMode.On;
 
-            int numParticles;
-            do
-                Console.Write($"Number of particles: "); // 8388480
-            while ((!int.TryParse(Console.ReadLine(), out numParticles)) || numParticles < 0);
+            int numParticles = 1000000; // You can adjust this number
 
             Random rng = new Random();
             Particle[] particles = new Particle[numParticles];
             for (int i = 0; i < particles.Length; i++)
             {
-                particles[i].Position = new Vector3(rng.NextSingle() * 100 - 50, rng.NextSingle() * 100 - 50, -rng.NextSingle() * 100);
-                //particles[i].Position = Helper.RandomUnitVector(rng) * 50.0f;
+                particles[i].Position = Helper.RandomUnitVector(rng) * 50.0f;
+                particles[i].Velocity = Vector3.Zero;
             }
             particleSimulator = new ParticleSimulator(particles);
-
-            GC.Collect();
 
             base.OnLoad(e);
         }
@@ -120,11 +85,6 @@ namespace Newtonian_Particle_Simulator
             }
 
             base.OnResize(e);
-        }
-        protected override void OnFocusedChanged(EventArgs e)
-        {
-            if (Focused)
-                MouseManager.Update();
         }
     }
 }

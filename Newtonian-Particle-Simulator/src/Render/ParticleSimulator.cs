@@ -1,7 +1,6 @@
 ﻿using System;
 using System.IO;
 using OpenTK;
-using OpenTK.Input;
 using OpenTK.Graphics.OpenGL4;
 using Newtonian_Particle_Simulator.Render.Objects;
 
@@ -11,6 +10,8 @@ namespace Newtonian_Particle_Simulator.Render
     {
         public readonly int NumParticles;
         private readonly ShaderProgram shaderProgram;
+        private Vector3 focalPoint;
+        private float time = 0f;
 
         public unsafe ParticleSimulator(ReadOnlySpan<Particle> particles)
         {
@@ -28,62 +29,41 @@ namespace Newtonian_Particle_Simulator.Render
             var particleBuffer = new BufferObject(BufferRangeTarget.ShaderStorageBuffer, 0);
             particleBuffer.ImmutableAllocate(sizeof(Particle) * (nint)NumParticles, particles[0], BufferStorageFlags.None);
 
+            focalPoint = Vector3.Zero;
             IsRunning = true;
         }
 
-        private bool _isRunning;
-        public bool IsRunning
-        {
-            get
-            {
-                return _isRunning;
-            }
-
-            set
-            {
-                _isRunning = value;
-                shaderProgram.Upload(3, _isRunning ? 1.0f : 0.0f);
-            }
-        }
+        public bool IsRunning { get; set; }
 
         public void Run(float dT)
         {
+            time += dT;
+            UpdateFocalPoint();
+
             GL.Clear(ClearBufferMask.ColorBufferBit);
             shaderProgram.Use();
             shaderProgram.Upload(0, dT);
+            shaderProgram.Upload(1, focalPoint);
+            shaderProgram.Upload(2, 1.0f); // Always active
+            shaderProgram.Upload(3, IsRunning ? 1.0f : 0.0f);
 
             GL.DrawArrays(PrimitiveType.Points, 0, NumParticles);
             GL.MemoryBarrier(MemoryBarrierFlags.ShaderStorageBarrierBit);
         }
 
-        public void ProcessInputs(GameWindow gameWindow, in Vector3 camPos, in Matrix4 view, in Matrix4 projection)
+        private void UpdateFocalPoint()
         {
-            if (gameWindow.CursorVisible)
-            {
-                if (MouseManager.LeftButton == ButtonState.Pressed)
-                {
-                    System.Drawing.Point windowSpaceCoords = gameWindow.PointToClient(new System.Drawing.Point(MouseManager.WindowPositionX, MouseManager.WindowPositionY)); windowSpaceCoords.Y = gameWindow.Height - windowSpaceCoords.Y; // [0, Width][0, Height]
-                    Vector2 normalizedDeviceCoords = Vector2.Divide(new Vector2(windowSpaceCoords.X, windowSpaceCoords.Y), new Vector2(gameWindow.Width, gameWindow.Height)) * 2.0f - new Vector2(1.0f); // [-1.0, 1.0][-1.0, 1.0]
-                    Vector3 dir = GetWorldSpaceRay(projection.Inverted(), view.Inverted(), normalizedDeviceCoords);
-
-                    Vector3 pointOfMass = camPos + dir * 25.0f;
-                    shaderProgram.Upload(1, pointOfMass);
-                    shaderProgram.Upload(2, 1.0f);
-                }
-                else
-                    shaderProgram.Upload(2, 0.0f);
-            }
-
-            if (KeyboardManager.IsKeyTouched(Key.T))
-                IsRunning = !IsRunning;
-
-            shaderProgram.Upload(4, view * projection);
+            // Create a circular motion for the focal point
+            float radius = 25.0f;
+            float frequency = 0.1f;
+            focalPoint.X = (float)Math.Cos(time * frequency) * radius;
+            focalPoint.Y = (float)Math.Sin(time * frequency) * radius;
+            focalPoint.Z = (float)Math.Sin(time * frequency * 0.5f) * radius * 0.5f;
         }
 
-        public static Vector3 GetWorldSpaceRay(Matrix4 inverseProjection, Matrix4 inverseView, Vector2 normalizedDeviceCoords)
+        public void UpdateProjectionView(Matrix4 projectionView)
         {
-            Vector4 rayEye = new Vector4(normalizedDeviceCoords.X, normalizedDeviceCoords.Y, -1.0f, 1.0f) * inverseProjection; rayEye.Z = -1.0f; rayEye.W = 0.0f;
-            return (rayEye * inverseView).Xyz.Normalized();
+            shaderProgram.Upload(4, projectionView);
         }
     }
 }
